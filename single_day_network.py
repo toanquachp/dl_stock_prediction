@@ -6,11 +6,10 @@ from tensorflow.keras.layers import LSTM, Dense, BatchNormalization, concatenate
 
 class SingleDayNetwork:
 
-    def __init__ (self, data, LAG_DAYS=21, TRAIN_RATIO=0.8):
+    def __init__ (self, data, LAG_DAYS=21):
         self.FEATURE_COLS = ['Open', 'High', 'Low', 'Close', 'Volume']
         self.data = data
         self.LAG_DAYS = LAG_DAYS
-        self.TRAIN_RATIO = 0.8
 
     def split_feature_target(self, data, target_index, lag_days):
         
@@ -82,7 +81,7 @@ class SingleDayNetwork:
         
         return np.mean(data, axis=1)
 
-    def preprocess_data(self, data):
+    def preprocess_data(self, data, train_ratio):
         
         """
         [summary]
@@ -91,7 +90,7 @@ class SingleDayNetwork:
             data {[type]} -- [description]
         """
 
-        train_set, test_set = split_train_test_set(data=data, feature_cols=self.FEATURE_COLS, train_ratio=self.TRAIN_RATIO)
+        train_set, test_set = split_train_test_set(data=data, feature_cols=self.FEATURE_COLS, train_ratio=train_ratio)
 
         _, target_scaler = scale_data(np.reshape(train_set[:, 3], (-1, 1)))
         X_train_scaled, feature_scaler = scale_data(train_set)
@@ -129,6 +128,8 @@ class SingleDayNetwork:
             [Model] -- [model to predict stock price]
         """
         
+        #TODO: add layer name
+
         lstm_input = Input(shape=lstm_input_shape)
         lstm_layer = LSTM(40)(lstm_input)
 
@@ -165,7 +166,7 @@ class SingleDayNetwork:
 
         plt.savefig(fig_name)
 
-    def build_train_model(self, epochs=80, batch_size=32):
+    def build_train_model(self, train_ratio=0.8, epochs=80, batch_size=32):
         
         """
         [summary]
@@ -180,7 +181,7 @@ class SingleDayNetwork:
 
         print('-- Preprocessing data --\n')
 
-        (X_train, y_train), (X_test, y_test) = self.preprocess_data(self.data)
+        (X_train, y_train), (X_test, y_test) = self.preprocess_data(self.data, train_ratio)
         
         X_train_ma = self.preprocess_moving_average(X_train)
         X_test_ma = self.preprocess_moving_average(X_test)
@@ -197,12 +198,12 @@ class SingleDayNetwork:
 
         print('-- Build LSTM model --\n')
 
-        lstm_model = build_model(LSTM_INPUT_SHAPE, EXTENSIVE_INPUT_SHAPE)
+        lstm_model = self.build_model(LSTM_INPUT_SHAPE, EXTENSIVE_INPUT_SHAPE)
         lstm_model.compile(loss='mse', optimizer='adam')
 
         print('-- Train LSTM model --\n')
 
-        history = lstm_model.fit(x=[X_train, X_train_ma], y=y_train, epochs=80, batch_size=32, verbose=2, shuffle=True, validation_split=0.2)
+        history = lstm_model.fit(x=[X_train, X_train_ma], y=y_train, epochs=epochs, batch_size=batch_size, verbose=2, shuffle=True, validation_split=0.2)
 
         print('-- Plotting LOSS figure --\n')
 
