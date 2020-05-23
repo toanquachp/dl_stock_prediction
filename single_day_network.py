@@ -1,8 +1,14 @@
+
+import os
 import numpy as np
 import matplotlib.pyplot as plt
+
 from sklearn.preprocessing import MinMaxScaler
+
 from tensorflow.keras.models import Model, save_model
 from tensorflow.keras.layers import LSTM, Dense, BatchNormalization, concatenate, Input
+
+from utils import plot_figures
 
 class SingleDayNetwork:
 
@@ -90,17 +96,14 @@ class SingleDayNetwork:
             data {[type]} -- [description]
         """
 
-        train_set, test_set = split_train_test_set(data=data, feature_cols=self.FEATURE_COLS, train_ratio=train_ratio)
+        train_set, test_set = self.split_train_test_set(data=data, feature_cols=self.FEATURE_COLS, train_ratio=train_ratio)
 
-        _, target_scaler = scale_data(np.reshape(train_set[:, 3], (-1, 1)))
-        X_train_scaled, feature_scaler = scale_data(train_set)
-        X_test_scaled, _ = scale_data(test_set, feature_scaler)
+        _, self.target_scaler = self.scale_data(np.reshape(train_set[:, 3], (-1, 1)))
+        X_train_scaled, self.feature_scaler = self.scale_data(train_set)
+        X_test_scaled, _ = self.scale_data(test_set, self.feature_scaler)
 
-        X_train, y_train = split_feature_target(X_train_scaled, 3, lag_days=LAG_DAYS)
-        X_test, y_test = split_feature_target(X_test_scaled, 3, lag_days=LAG_DAYS)
-
-        self.target_scaler = target_scaler
-        self.feature_scaler = feature_scaler
+        X_train, y_train = self.split_feature_target(X_train_scaled, 3, lag_days=self.LAG_DAYS)
+        X_test, y_test = self.split_feature_target(X_test_scaled, 3, lag_days=self.LAG_DAYS)
 
         return (X_train, y_train), (X_test, y_test)
 
@@ -144,29 +147,7 @@ class SingleDayNetwork:
 
         return lstm_model
 
-    def plot_figures(self, data, y_label, legend, title, fig_name):
-        """
-        [summary]
-
-        Arguments:
-            data {[type]} -- [description]
-            y_label {[type]} -- [description]
-            legend {[type]} -- [description]
-            title {[type]} -- [description]
-            fig_name {[type]} -- [description]
-        """
-        
-        plt.figure(figsize=(16, 12))
-
-        plt.plot(data[0])
-        plt.plot(data[1])
-        plt.ylabel(y_label)
-        plt.legend(legend)
-        plt.title(title)
-
-        plt.savefig(fig_name)
-
-    def build_train_model(self, train_ratio=0.8, epochs=80, batch_size=32):
+    def build_train_model(self, train_ratio=0.8, epochs=80, batch_size=32, model_save_name='models/single_day_lstm.h5'):
         
         """
         [summary]
@@ -207,12 +188,12 @@ class SingleDayNetwork:
 
         print('-- Plotting LOSS figure --\n')
 
-        self.plot_figures(
-            data=[history['loss'], history['val_loss']], 
+        plot_figures(
+            data=[history.history['loss'], history.history['val_loss']], 
             y_label='Loss', 
             legend=['loss', 'val_loss'], 
             title='LSTM single day training and validating loss', 
-            fig_name='figures/lstm_loss.png'
+            file_name='figures/lstm_loss_single_day.png'
         )
 
         print('-- Evaluating on Test set --')
@@ -225,16 +206,21 @@ class SingleDayNetwork:
         print(f'Mean Absolute Error - Testing = {mae_inverse}\n')
 
         print('-- Plotting LSTM stock prediction vs Real closing stock price figure --\n')
-        self.plot_figure(
+        
+        plot_figures(
             data=[y_predicted_inverse, y_test_inverse],
             y_label='Close',
             legend=['y_predict', 'y_test'],
-            title='Real Close stock price vs LSTM prediction',
-            fig_name='figures/lstm_prediction.png'
+            title='Real Close stock price vs LSTM prediction on 1 day period',
+            file_name='figures/lstm_prediction_single_day.png'
         )
 
         print('-- Save LSTM model --\n')
-        
-        save_model(lstm_model, filepath='models/single_day_lstm.h5')
+
+        if not os.path.exists('./models'):
+            os.mkdir('./models')
+
+        if model_save_name is not None:
+            save_model(lstm_model, filepath=model_save_name)
 
         return lstm_model

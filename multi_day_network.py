@@ -1,3 +1,5 @@
+from utils import plot_figures
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -5,11 +7,16 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
+from tensorflow.keras.layers import Input, LSTM, Flatten, concatenate, BatchNormalization, Dense
+from tensorflow.keras.models import Model, save_model
+
 
 class MultiDayNetwork:
 
-    def __init__(self, LAG_DAYS=10, NUM_STEP=5):
+    def __init__(self, data, LAG_DAYS=10, NUM_STEP=5):
+        self.data = data
         self.FEATURE_COL = ['Open', 'High', 'Low', 'Close', 'Volume', 'ma7', 'ma21', '26ema', '12ema', 'MACD', 'std21', 'upper_band21', 'lower_band21', 'ema']
+        self.EXT_FEATURE_COL = ['ma7', 'MACD', 'upper_band21', 'lower_band21', 'ema']
         self.TARGET_COL = ['Close']
         self.LAG_DAYS = LAG_DAYS
         self.NUM_STEP = NUM_STEP
@@ -37,15 +44,15 @@ class MultiDayNetwork:
         # remove 
         return data
 
-    def split_data(self, data, feature_col, external_feature_col, target_col, train_size=0.8, shuffle=False):
+    def split_data(self, data, feature_col, external_feature_col, target_col, train_ratio=0.8, shuffle=False):
       
         # get data columns
         X = data[feature_col]
         X_external = data[external_feature_col]
         y = data[target_col]
         
-        X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_size, shuffle=shuffle)
-        X_train_external, X_test_external = train_test_split(X_external, train_size=train_size, shuffle=shuffle)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, train_size=train_ratio, shuffle=shuffle)
+        X_train_external, X_test_external = train_test_split(X_external, train_size=train_ratio, shuffle=shuffle)
         
         print(f'Training set: ({X_train.shape} - {y_train.shape})')
         print(f'Training set: External data - ({X_train_external.shape})')
@@ -80,15 +87,15 @@ class MultiDayNetwork:
         data_technical_indicators = data_technical_indicators.dropna()
         data_technical_indicators = data_technical_indicators.reset_index(drop=True)
 
-        train_data, test_data = self.split_data(data_technical_indicators, self.FEATURE_COL, self.TARGET_COL, train_ratio=train_ratio)
+        train_data, test_data = self.split_data(data_technical_indicators, self.FEATURE_COL, self.EXT_FEATURE_COL, self.TARGET_COL, train_ratio=train_ratio)
         
-        X_train_scaled, self.feature_scaler = scale_data(train_data[0])
-        X_train_external_scaled, self.external_feature_scaler = scale_data(train_data[1])
-        y_train_scaled, self.target_scaler = scale_data(train_data[2])
+        X_train_scaled, self.feature_scaler = self.scale_data(train_data[0])
+        X_train_external_scaled, self.external_feature_scaler = self.scale_data(train_data[1])
+        y_train_scaled, self.target_scaler = self.scale_data(train_data[2])
 
-        X_test_scaled, feature_scaler = scale_data(test_data[0], self.feature_scaler)
-        X_test_external_scaled, external_feature_scaler = scale_data(test_data[1], self.external_feature_scaler)
-        y_test_scaled, target_scaler = scale_data(test_data[2], self.target_scaler)
+        X_test_scaled, _ = self.scale_data(test_data[0], self.feature_scaler)
+        X_test_external_scaled, _ = self.scale_data(test_data[1], self.external_feature_scaler)
+        y_test_scaled, _ = self.scale_data(test_data[2], self.target_scaler)
 
         train_data_scaled = (X_train_scaled, X_train_external_scaled, y_train_scaled)
         test_data_scaled = (X_test_scaled, X_test_external_scaled, y_test_scaled)
@@ -108,19 +115,26 @@ class MultiDayNetwork:
         x = Flatten()(x)
         x = concatenate((external_input_layer, x))
         x = BatchNormalization()(x)
-        output_layer = Dense(OUTPUT_SHAPE, activation='elu', name='output_layer')(x)
+        output_layer = Dense(self.NUM_STEP, activation='elu', name='output_layer')(x)
 
         lstm_model = Model(inputs=[input_layer, external_input_layer], outputs=output_layer, name='lstm_model')
 
-        
-
         return lstm_model
 
-    def build_train_model(self, train_ratio=0.8, epochs=80, batch_size=32):
+    def plot_multi_day_prediction(self, y_test, y_pred, file_name):
+        plt.figure(figsize=(15, 8))
+        plt.plot(y_test, color='g')
+
+        for i in range(0, y_pred.shape[0], self.NUM_STEP):
+            plt.plot(range(i, i + self.NUM_STEP), y_pred[i], color='b')
+
+        plt.savefig(file_name)
+
+    def build_train_model(self, train_ratio=0.8, epochs=80, batch_size=32, model_save_name='models/multi_day_lstm.h5'):
         
         print('-- Preprocessing data --\n')
 
-        (X_train, X_train_external, y_train), (X_test, X_test_external, y_test) = self.preprocess_data(self.data, train_ratio)
+        (X_train, X_train_external, y_train), (X_test, X_test_external, y_test) = self.preprocess_data(self.data, train_ratio=train_ratio)
         
         print(f'Training set: ({X_train.shape} - {y_train.shape})')
         print(f'Testing set: ({X_test.shape} - {y_test.shape})')
@@ -139,35 +153,32 @@ class MultiDayNetwork:
 
         print('-- Plotting LOSS figure --\n')
 
-        self.plot_figures(
-            data=[history['loss'], history['val_loss']], 
+        plot_figures(
+            data=[history.history['loss'], history.history['val_loss']], 
             y_label='Loss', 
             legend=['loss', 'val_loss'], 
-            title='LSTM single day training and validating loss', 
-            fig_name='figures/lstm_loss.png'
+            title='LSTM multi day training and validating loss', 
+            file_name='figures/lstm_loss_multi_day.png'
         )
 
-        print('-- Evaluating on Test set --')
-
         y_predicted = lstm_model.predict([X_test, X_test_external])
-        y_predicted_inverse = self.target_scaler.inverse_transform(y_predicted)
-        y_test_inverse = self.target_scaler.inverse_transform(y_test)
+        y_test_plot = np.concatenate((y_test[:, 0], y_test[-1, 1:]))
 
-        mae_inverse = np.sum(np.abs(y_predicted_inverse - y_test_inverse)) / len(y_test)
-        print(f'Mean Absolute Error - Testing = {mae_inverse}\n')
+        y_predicted_inverse = self.target_scaler.inverse_transform(y_predicted)
+        y_test_inverse = self.target_scaler.inverse_transform(y_test_plot)
 
         print('-- Plotting LSTM stock prediction vs Real closing stock price figure --\n')
-        self.plot_figure(
-            data=[y_predicted_inverse, y_test_inverse],
-            y_label='Close',
-            legend=['y_predict', 'y_test'],
-            title='Real Close stock price vs LSTM prediction',
-            fig_name='figures/lstm_prediction.png'
+        
+        self.plot_multi_day_prediction(
+            y_test_inverse,
+            y_predicted_inverse,
+            file_name='figures/lstm_prediction_multi_day.png'
         )
 
         print('-- Save LSTM model --\n')
         
-        save_model(lstm_model, filepath='models/single_day_lstm.h5')
+        if model_save_name is not None:
+            save_model(lstm_model, filepath=model_save_name)
 
         return lstm_model
 
