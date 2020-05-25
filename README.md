@@ -48,4 +48,4 @@ This notebook is entirely made for researching and learning purposes only. None 
 All trading strategies are used at your own risk.
 
 ## License
-(Apache License 2.0)[https://choosealicense.com/licenses/apache-2.0/]
+[Apache License 2.0](https://choosealicense.com/licenses/apache-2.0/)
